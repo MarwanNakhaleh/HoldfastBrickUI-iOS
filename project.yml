@@ -1,5 +1,5 @@
-# XcodeGen spec — run `xcodegen generate`, then open PrivacyBrick.xcodeproj
-name: PrivacyBrick
+# XcodeGen spec — run `xcodegen generate`, then open HoldfastBrick.xcodeproj
+name: HoldfastBrick
 options:
   bundleIdPrefix: com.marwannakhaleh
   deploymentTarget:
@@ -21,56 +21,56 @@ packages:
     from: 0.12.1
 
 targets:
-  PrivacyBrick:
+  HoldfastBrick:
     type: application
     platform: iOS
-    sources: [PrivacyBrick]
+    sources: [HoldfastBrick]
     dependencies:
       - package: Citadel
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.marwannakhaleh.privacybrick
+        PRODUCT_BUNDLE_IDENTIFIER: com.marwannakhaleh.holdfastbrick
         MARKETING_VERSION: 0.1.0
         CURRENT_PROJECT_VERSION: 1
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_CFBundleDisplayName: PrivacyBrick
+        INFOPLIST_KEY_CFBundleDisplayName: Holdfast
     info:
-      path: PrivacyBrick/Info.plist
+      path: HoldfastBrick/Info.plist
       properties:
-        CFBundleDisplayName: PrivacyBrick
+        CFBundleDisplayName: Holdfast
         UILaunchScreen: {}
         # Bonjour discovery of the Pi on the home network.
-        NSLocalNetworkUsageDescription: "PrivacyBrick finds your privacy device on your home WiFi so the app can talk to it directly. Nothing leaves your network."
-        NSBonjourServices: ["_privacybrick._tcp"]
+        NSLocalNetworkUsageDescription: "Holdfast finds your privacy device on your home WiFi so the app can talk to it directly. Nothing leaves your network."
+        NSBonjourServices: ["_holdfastbrick._tcp"]
         # The Pi API is plain HTTP on the trusted LAN / tailnet.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
           NSAllowsArbitraryLoads: true
 
-  PrivacyBrickTests:
+  HoldfastBrickTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [PrivacyBrickTests]
+    sources: [HoldfastBrickTests]
     dependencies:
-      - target: PrivacyBrick
+      - target: HoldfastBrick
 
-  PrivacyBrickUITests:
+  HoldfastBrickUITests:
     type: bundle.ui-testing
     platform: iOS
-    sources: [PrivacyBrickUITests]
+    sources: [HoldfastBrickUITests]
     dependencies:
-      - target: PrivacyBrick
+      - target: HoldfastBrick
 
 schemes:
-  PrivacyBrick:
+  HoldfastBrick:
     build:
       targets:
-        PrivacyBrick: all
+        HoldfastBrick: all
     run:
       config: Debug
     test:
       config: Debug
       targets:
-        - PrivacyBrickTests
-        - PrivacyBrickUITests
+        - HoldfastBrickTests
+        - HoldfastBrickUITests
