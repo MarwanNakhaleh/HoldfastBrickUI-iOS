@@ -10,6 +10,8 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     TARGETED_DEVICE_FAMILY: "1,2"
+    DEVELOPMENT_TEAM: 2MF4Q85LAQ
+    CODE_SIGN_STYLE: Automatic
 
 packages:
   # SUPPLY CHAIN: Citadel's SSH protocol layer is a community fork of
@@ -32,6 +34,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: solutions.branson.HoldfastBrick
         MARKETING_VERSION: 0.1.0
         CURRENT_PROJECT_VERSION: 1
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: Holdfast
@@ -40,6 +43,7 @@ targets:
       properties:
         CFBundleDisplayName: Holdfast
         UILaunchScreen: {}
+        UISupportedInterfaceOrientations: ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"]
         # Bonjour discovery of the Pi on the home network.
         NSLocalNetworkUsageDescription: "Holdfast finds your privacy device on your home WiFi so the app can talk to it directly. Nothing leaves your network."
         NSBonjourServices: ["_holdfastbrick._tcp"]
