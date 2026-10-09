@@ -1,7 +1,7 @@
 # XcodeGen spec — run `xcodegen generate`, then open HoldfastBrick.xcodeproj
 name: HoldfastBrick
 options:
-  bundleIdPrefix: com.marwannakhaleh
+  bundleIdPrefix: solutions.branson
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
@@ -29,7 +29,7 @@ targets:
       - package: Citadel
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.marwannakhaleh.holdfastbrick
+        PRODUCT_BUNDLE_IDENTIFIER: solutions.branson.HoldfastBrick
         MARKETING_VERSION: 0.1.0
         CURRENT_PROJECT_VERSION: 1
         GENERATE_INFOPLIST_FILE: YES
@@ -43,10 +43,12 @@ targets:
         # Bonjour discovery of the Pi on the home network.
         NSLocalNetworkUsageDescription: "Holdfast finds your privacy device on your home WiFi so the app can talk to it directly. Nothing leaves your network."
         NSBonjourServices: ["_holdfastbrick._tcp"]
-        # The Pi API is plain HTTP on the trusted LAN / tailnet.
+        # The brick API is HTTPS with a certificate from the household CA the
+        # phone already trusts. NSAllowsLocalNetworking covers Bonjour and LAN
+        # addresses; the plain-http dev-brick fallback in EndpointResolver is
+        # therefore limited to local addresses (intentional).
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
-          NSAllowsArbitraryLoads: true
 
   HoldfastBrickTests:
     type: bundle.unit-test

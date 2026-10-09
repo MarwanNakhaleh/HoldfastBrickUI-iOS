@@ -9,6 +9,7 @@ import Observation
 final class RemoteConsoleModel {
     enum State: Equatable {
         case disconnected
+        case awaitingCode(expiresAt: Date)
         case connecting
         case connected
         case failed(String)
@@ -23,13 +24,17 @@ final class RemoteConsoleModel {
 
     static let username = "root"
     static let keyComment = "holdfastbrick-app"
-    private static let enabledKey = "remoteConsoleEnabled"
+    /// Shared with AppModel so unpair can clear the flag.
+    static let enabledKey = "remoteConsoleEnabled"
 
     private(set) var state: State = .disconnected
     private(set) var entries: [Entry] = []
     private(set) var isEnabled: Bool
     private(set) var isEnabling = false
     private(set) var isRunning = false
+    /// The public key staged while the user reads the code off the brick.
+    private var pendingPublicKey: String?
+    var confirmCode: String = ""
     var lastError: String?
 
     private let api: BrickAPI
@@ -65,22 +70,45 @@ final class RemoteConsoleModel {
         return bare.replacingOccurrences(of: "%25", with: "%")
     }
 
-    /// Ensure the device keypair exists and install its public half on the
-    /// brick through the paired API.
-    func enable() async {
+    /// Step 1 of enabling: stage the key and mint a confirmation code, which
+    /// the brick shows on its console only — fresh proof someone physical is
+    /// there before this phone gains root.
+    func beginEnable() async {
         guard !isEnabling else { return }
         isEnabling = true
         lastError = nil
         defer { isEnabling = false }
         do {
-            let publicKey = try keys.publicKeyOpenSSH(comment: Self.keyComment)
-            let result = try await api.installSSHKey(publicKey: publicKey)
+            pendingPublicKey = try keys.publicKeyOpenSSH(comment: Self.keyComment)
+            let expiresAt = try await api.requestSSHConfirmCode()
+            confirmCode = ""
+            state = .awaitingCode(expiresAt: expiresAt)
+        } catch {
+            pendingPublicKey = nil
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// Step 2: install the staged key with the code the user read off the
+    /// brick.
+    func confirmEnable() async {
+        guard !isEnabling, let publicKey = pendingPublicKey else { return }
+        isEnabling = true
+        lastError = nil
+        defer { isEnabling = false }
+        do {
+            let result = try await api.installSSHKey(
+                publicKey: publicKey, confirmCode: confirmCode.trimmingCharacters(in: .whitespaces)
+            )
             guard result.ok else {
                 lastError = result.message
                 return
             }
+            pendingPublicKey = nil
+            confirmCode = ""
             isEnabled = true
             defaults.set(true, forKey: Self.enabledKey)
+            state = .disconnected
         } catch {
             lastError = error.localizedDescription
         }
@@ -95,7 +123,9 @@ final class RemoteConsoleModel {
             // access to the address that installed the key, so this moves
             // the whitelist along whenever this device's IP has changed.
             if let publicKey = try? keys.publicKeyOpenSSH(comment: Self.keyComment) {
-                _ = try? await api.installSSHKey(publicKey: publicKey)
+                // Re-post without a code: the brick skips confirmation for an
+                // already-installed key (this only moves its IP restriction).
+                _ = try? await api.installSSHKey(publicKey: publicKey, confirmCode: nil)
             }
             let endpoint = try await endpoints.resolve()
             let host = Self.sshHost(from: endpoint.host)

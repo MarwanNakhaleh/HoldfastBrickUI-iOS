@@ -7,6 +7,8 @@ import Observation
 /// so flows can be exercised end-to-end with no hardware.
 final class MockBrickAPI: BrickAPI, @unchecked Sendable {
     static let pairingCode = "123456"
+    /// The demo brick pretends to serve TLS with a household-CA certificate.
+    static let certFingerprint = String(repeating: "a7", count: 32)
 
     private var adBlockingOn = true
     private var remoteAccessOn = true
@@ -25,7 +27,11 @@ final class MockBrickAPI: BrickAPI, @unchecked Sendable {
         guard code == Self.pairingCode else {
             throw BrickError.pairingRejected("Wrong or expired code. Get a fresh one from the device.")
         }
-        return PairingGrant(token: "mock-token", deviceName: "Holdfast Brick (Demo)")
+        return PairingGrant(
+            token: "mock-token",
+            deviceName: "Holdfast Brick (Demo)",
+            certFingerprint: Self.certFingerprint
+        )
     }
 
     func identity() async throws -> BrickIdentity {
@@ -205,11 +211,25 @@ final class MockBrickAPI: BrickAPI, @unchecked Sendable {
 
     private var installedSSHKeys: Set<String> = []
 
-    func installSSHKey(publicKey: String) async throws -> BrickActionResult {
+    func requestSSHConfirmCode() async throws -> Date {
+        Date().addingTimeInterval(300)
+    }
+
+    func installSSHKey(publicKey: String, confirmCode: String?) async throws -> BrickActionResult {
         let alreadyInstalled = !installedSSHKeys.insert(publicKey).inserted
+        if alreadyInstalled == false && (confirmCode ?? "").isEmpty {
+            throw BrickError.deviceError(
+                "Missing confirmation code. Read the code shown on the brick and try again."
+            )
+        }
         return BrickActionResult(
             ok: true, message: alreadyInstalled ? "Key already installed" : "Key installed"
         )
+    }
+
+    func removeSSHKey() async throws -> BrickActionResult {
+        installedSSHKeys.removeAll()
+        return BrickActionResult(ok: true, message: "Key removed")
     }
 
     // MARK: - Device

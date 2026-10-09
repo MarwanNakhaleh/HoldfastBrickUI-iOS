@@ -4,17 +4,30 @@ import Foundation
 /// the EndpointResolver, so callers never know (or care) whether the winning
 /// route is Tailscale or the home LAN.
 final class HTTPBrickClient: BrickAPI {
+    /// Sends one request. Injectable so tests can assert on headers and URLs
+    /// without a real socket; production wraps URLSession.
+    typealias Transport = (URLRequest) async throws -> (Data, URLResponse)
+
     private let resolver: EndpointResolver
     private let tokens: TokenStore
-    private let session: URLSession
+    private let transport: Transport
 
-    init(resolver: EndpointResolver, tokens: TokenStore) {
+    init(
+        resolver: EndpointResolver,
+        tokens: TokenStore,
+        transport: ((URLRequest) async throws -> (Data, URLResponse))? = nil
+    ) {
         self.resolver = resolver
         self.tokens = tokens
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
-        config.waitsForConnectivity = false
-        session = URLSession(configuration: config)
+        if let transport {
+            self.transport = transport
+        } else {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 15
+            config.waitsForConnectivity = false
+            let session = URLSession(configuration: config)
+            self.transport = { try await session.data(for: $0) }
+        }
     }
 
     // MARK: - Session
@@ -133,8 +146,23 @@ final class HTTPBrickClient: BrickAPI {
 
     // MARK: - Remote Console
 
-    func installSSHKey(publicKey: String) async throws -> BrickActionResult {
-        try await request("POST", "/api/v1/system/ssh-key", body: ["public_key": publicKey])
+    func requestSSHConfirmCode() async throws -> Date {
+        struct Body: Decodable { let expires_at: String }
+        let body: Body = try await request("POST", "/api/v1/system/confirm-code")
+        guard let date = ISO8601DateFormatter().date(from: body.expires_at) else {
+            throw BrickError.deviceError("Brick sent an unreadable code expiry.")
+        }
+        return date
+    }
+
+    func installSSHKey(publicKey: String, confirmCode: String?) async throws -> BrickActionResult {
+        var body: [String: String] = ["public_key": publicKey]
+        if let confirmCode { body["confirm_code"] = confirmCode }
+        return try await request("POST", "/api/v1/system/ssh-key", body: body)
+    }
+
+    func removeSSHKey() async throws -> BrickActionResult {
+        try await send("DELETE", "/api/v1/system/ssh-key", tolerateMissingEndpoint: true)
     }
 
     // MARK: - Device
@@ -177,9 +205,10 @@ final class HTTPBrickClient: BrickAPI {
     private func send<Response: Decodable>(
         _ method: String,
         _ path: String,
-        query: [URLQueryItem],
-        body: [String: Any]?,
-        authenticated: Bool
+        query: [URLQueryItem] = [],
+        body: [String: Any]? = nil,
+        authenticated: Bool = true,
+        tolerateMissingEndpoint: Bool = false
     ) async throws -> Response {
         let endpoint = try await resolver.resolve()
         guard let base = endpoint.url,
@@ -188,6 +217,14 @@ final class HTTPBrickClient: BrickAPI {
         else { throw BrickError.unreachable }
         if !query.isEmpty { components.queryItems = query }
         guard let url = components.url else { throw BrickError.unreachable }
+
+        if authenticated, !endpoint.secure,
+           resolver.transportSecurity != .plaintextPaired {
+            // A plain-http fallback proves nothing about who is listening, so
+            // a token minted over TLS must never ride it (S1 client half).
+            // Re-pairing is the only way a TLS-less (dev) brick gets a token.
+            throw BrickError.insecureTransport
+        }
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
@@ -203,7 +240,7 @@ final class HTTPBrickClient: BrickAPI {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: urlRequest)
+            (data, response) = try await transport(urlRequest)
         } catch {
             resolver.invalidate()
             throw BrickError.unreachable
@@ -223,6 +260,15 @@ final class HTTPBrickClient: BrickAPI {
             throw BrickError.pairingRejected(Self.detail(from: data)
                 ?? "Wrong or expired code. Get a fresh one from the device.")
         default:
+            // Older bricks predate the unpair endpoint; that's "nothing to
+            // remove", not an error (M10).
+            if tolerateMissingEndpoint, http.statusCode == 404 || http.statusCode == 501,
+               let older = BrickActionResult(
+                   ok: true,
+                   message: "This brick runs older software; no key needed removing."
+               ) as? Response {
+                return older
+            }
             throw BrickError.deviceError(Self.detail(from: data)
                 ?? "The device returned an error (\(http.statusCode)).")
         }

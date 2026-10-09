@@ -19,7 +19,9 @@ final class RemoteConsoleModelTests: XCTestCase {
     }
 
     private func makeModel(lanHost: String = "10.0.0.230") -> RemoteConsoleModel {
-        let endpoints = EndpointResolver(defaults: defaults, probe: { _ in true })
+        let endpoints = EndpointResolver(defaults: defaults, probe: { _ in
+            .answered(certFingerprint: nil)
+        })
         endpoints.adopt(lanHost: lanHost, port: 8787)
         return RemoteConsoleModel(
             api: api, keys: keys, shell: shell, endpoints: endpoints, defaults: defaults
@@ -32,7 +34,8 @@ final class RemoteConsoleModelTests: XCTestCase {
         let model = makeModel()
         XCTAssertFalse(model.isEnabled)
 
-        await model.enable()
+        await model.beginEnable()
+        await model.confirmEnable()
 
         XCTAssertTrue(model.isEnabled)
         XCTAssertNil(model.lastError)
@@ -41,11 +44,38 @@ final class RemoteConsoleModelTests: XCTestCase {
                       "the explainer should not reappear on the next visit")
     }
 
+    func test_enable_requiresCodeShownOnBrick() async {
+        let model = makeModel()
+        await model.beginEnable()
+
+        XCTAssertFalse(model.isEnabled)
+        if case .awaitingCode = model.state {} else {
+            XCTFail("expected awaitingCode, got \(model.state)")
+        }
+        XCTAssertEqual(api.confirmCodeRequests, 1)
+        XCTAssertEqual(api.installedKeys, [], "no key may install before the code")
+    }
+
+    func test_enable_wrongCode_surfacesErrorAndStaysDisabled() async {
+        let model = makeModel()
+        api.installSSHKeyResult = .failure(
+            BrickError.deviceError("Missing or wrong confirmation code.")
+        )
+        await model.beginEnable()
+        model.confirmCode = "000000"
+        await model.confirmEnable()
+
+        XCTAssertFalse(model.isEnabled)
+        XCTAssertEqual(model.lastError, "Missing or wrong confirmation code.")
+    }
+
     func test_enable_apiRejectsKey_surfacesMessageAndStaysDisabled() async {
         api.installSSHKeyResult = .success(BrickActionResult(ok: false, message: "Invalid key"))
         let model = makeModel()
 
-        await model.enable()
+        await model.beginEnable()
+        model.confirmCode = "123456"
+        await model.confirmEnable()
 
         XCTAssertFalse(model.isEnabled)
         XCTAssertEqual(model.lastError, "Invalid key")
@@ -55,7 +85,9 @@ final class RemoteConsoleModelTests: XCTestCase {
         api.installSSHKeyResult = .failure(BrickError.unreachable)
         let model = makeModel()
 
-        await model.enable()
+        await model.beginEnable()
+        model.confirmCode = "123456"
+        await model.confirmEnable()
 
         XCTAssertFalse(model.isEnabled)
         XCTAssertEqual(model.lastError, BrickError.unreachable.errorDescription)
@@ -65,7 +97,9 @@ final class RemoteConsoleModelTests: XCTestCase {
 
     func test_connect_whenEnabled_opensRootSessionAndConnects() async {
         let model = makeModel()
-        await model.enable()
+        await model.beginEnable()
+        model.confirmCode = "123456"
+        await model.confirmEnable()
 
         await model.connect()
 
@@ -76,7 +110,9 @@ final class RemoteConsoleModelTests: XCTestCase {
 
     func test_connect_bracketedIPv6Endpoint_passesNormalizedHostToShell() async {
         let model = makeModel(lanHost: "[fe80::1%25en0]")
-        await model.enable()
+        await model.beginEnable()
+        model.confirmCode = "123456"
+        await model.confirmEnable()
 
         await model.connect()
 
@@ -96,7 +132,9 @@ final class RemoteConsoleModelTests: XCTestCase {
     func test_connect_shellFailure_setsFailedState() async {
         shell.connectError = BrickError.unreachable
         let model = makeModel()
-        await model.enable()
+        await model.beginEnable()
+        model.confirmCode = "123456"
+        await model.confirmEnable()
 
         await model.connect()
 
@@ -108,7 +146,9 @@ final class RemoteConsoleModelTests: XCTestCase {
 
     func test_connect_whileAlreadyConnected_doesNotReconnect() async {
         let model = makeModel()
-        await model.enable()
+        await model.beginEnable()
+        model.confirmCode = "123456"
+        await model.confirmEnable()
         await model.connect()
 
         await model.connect()
@@ -121,7 +161,9 @@ final class RemoteConsoleModelTests: XCTestCase {
     func test_run_success_appendsCommandAndOutputToScrollback() async {
         shell.session.outputs["uname -a"] = "Linux holdfastbrick"
         let model = makeModel()
-        await model.enable()
+        await model.beginEnable()
+        model.confirmCode = "123456"
+        await model.confirmEnable()
         await model.connect()
 
         await model.run("uname -a")
@@ -134,7 +176,9 @@ final class RemoteConsoleModelTests: XCTestCase {
     func test_run_sessionError_surfacesErrorInScrollback() async {
         shell.session.runError = BrickError.unreachable
         let model = makeModel()
-        await model.enable()
+        await model.beginEnable()
+        model.confirmCode = "123456"
+        await model.confirmEnable()
         await model.connect()
 
         await model.run("ls")
@@ -145,7 +189,9 @@ final class RemoteConsoleModelTests: XCTestCase {
 
     func test_run_blankCommand_isIgnored() async {
         let model = makeModel()
-        await model.enable()
+        await model.beginEnable()
+        model.confirmCode = "123456"
+        await model.confirmEnable()
         await model.connect()
 
         await model.run("   ")
@@ -156,7 +202,9 @@ final class RemoteConsoleModelTests: XCTestCase {
 
     func test_run_beforeConnect_isIgnored() async {
         let model = makeModel()
-        await model.enable()
+        await model.beginEnable()
+        model.confirmCode = "123456"
+        await model.confirmEnable()
 
         await model.run("ls")
 
@@ -167,7 +215,9 @@ final class RemoteConsoleModelTests: XCTestCase {
 
     func test_disconnect_closesSessionAndReturnsToDisconnected() async {
         let model = makeModel()
-        await model.enable()
+        await model.beginEnable()
+        model.confirmCode = "123456"
+        await model.confirmEnable()
         await model.connect()
 
         await model.disconnect()
@@ -221,14 +271,21 @@ private final class FakeShellConnector: RemoteShellConnector {
 /// BrickAPI stub for console tests: only `installSSHKey` is expected to be
 /// called; anything else is a test bug.
 private final class ConsoleBrickAPIStub: BrickAPI {
+    private(set) var confirmCodeRequests = 0
     var installSSHKeyResult: Result<BrickActionResult, Error> =
         .success(BrickActionResult(ok: true, message: "Key installed"))
     private(set) var installedKeys: [String] = []
 
-    func installSSHKey(publicKey: String) async throws -> BrickActionResult {
+    func requestSSHConfirmCode() async throws -> Date {
+        confirmCodeRequests += 1
+        return Date().addingTimeInterval(300)
+    }
+    func installSSHKey(publicKey: String, confirmCode: String?) async throws -> BrickActionResult {
         installedKeys.append(publicKey)
         return try installSSHKeyResult.get()
     }
+
+    func removeSSHKey() async throws -> BrickActionResult { fatalError("unused") }
 
     func pair(code: String) async throws -> PairingGrant { fatalError("unused") }
     func identity() async throws -> BrickIdentity { fatalError("unused") }

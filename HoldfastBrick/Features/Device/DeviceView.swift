@@ -52,6 +52,25 @@ struct DeviceView: View {
             }
 
             Section {
+                if let brickID = appModel.brickID {
+                    row("Brick ID", brickID)
+                        .accessibilityIdentifier("device.brickID")
+                } else {
+                    Label("This brick is running an older, less secure setup. Re-pair to upgrade it.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                        .accessibilityIdentifier("device.insecureWarning")
+                }
+            } header: {
+                Text("Security")
+            } footer: {
+                Text(appModel.brickID == nil
+                     ? "Re-pairing sets up an encrypted connection between this phone and your Holdfast Brick."
+                     : "Compare this ID with the one the Holdfast Brick prints in its console to confirm you're connected to your own device.")
+            }
+
+            Section {
                 Button {
                     startUpdate()
                 } label: {
@@ -132,7 +151,9 @@ struct DeviceView: View {
         }
         .confirmationDialog("Forget this device?",
                             isPresented: $showForgetConfirm, titleVisibility: .visible) {
-            Button("Forget", role: .destructive) { appModel.forgetDevice() }
+            Button("Forget", role: .destructive) {
+                Task { await appModel.forgetDevice() }
+            }
             Button("Cancel", role: .cancel) {}
         }
         .task { health = try? await appModel.api.deviceHealth() }

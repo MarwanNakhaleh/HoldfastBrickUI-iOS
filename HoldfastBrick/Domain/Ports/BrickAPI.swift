@@ -8,6 +8,9 @@ enum BrickError: LocalizedError, Equatable {
     case unauthorized
     case unreachable
     case deviceError(String)
+    /// The brick answered over plain http, so its identity is unproven; a
+    /// token minted over TLS must not be sent until the user re-pairs.
+    case insecureTransport
 
     var errorDescription: String? {
         switch self {
@@ -17,6 +20,8 @@ enum BrickError: LocalizedError, Equatable {
             return message
         case .unauthorized:
             return "This phone is no longer paired. Pair again with a new code."
+        case .insecureTransport:
+            return "This brick is running an older, less secure setup. Re-pair to upgrade it."
         case .unreachable:
             return "Can't reach your Holdfast Brick right now."
         case let .deviceError(message):
@@ -65,7 +70,11 @@ protocol BrickAPI {
     func routerInfo() async throws -> RouterInfo
 
     // Remote Console
-    func installSSHKey(publicKey: String) async throws -> BrickActionResult
+    func requestSSHConfirmCode() async throws -> Date
+    func installSSHKey(publicKey: String, confirmCode: String?) async throws -> BrickActionResult
+    /// Removes this phone's key from the brick. Older bricks without the
+    /// endpoint answer 404/501; callers treat that as "nothing to remove".
+    func removeSSHKey() async throws -> BrickActionResult
 
     // Device
     func deviceHealth() async throws -> DeviceHealth

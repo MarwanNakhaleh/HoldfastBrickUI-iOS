@@ -63,9 +63,26 @@ final class ModelDecodingTests: XCTestCase {
 
     func testPairingGrantDecoding() throws {
         let grant = try decode(PairingGrant.self, """
-        {"token": "abc123", "device_name": "Holdfast Brick"}
+        {"token": "abc123", "device_name": "Holdfast Brick",
+         "cert_fingerprint": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"}
         """)
         XCTAssertEqual(grant.token, "abc123")
+        XCTAssertEqual(grant.certFingerprint,
+                       "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08")
+    }
+
+    func testPairingGrant_nullOrMissingFingerprint_decodesForTLSLessBrick() throws {
+        // cert_fingerprint is null while the brick runs without TLS (dev);
+        // bricks from before that field existed omit it entirely.
+        let nullFingerprint = try decode(PairingGrant.self, """
+        {"token": "abc123", "device_name": "Holdfast Brick", "cert_fingerprint": null}
+        """)
+        XCTAssertNil(nullFingerprint.certFingerprint)
+
+        let legacy = try decode(PairingGrant.self, """
+        {"token": "abc123", "device_name": "Holdfast Brick"}
+        """)
+        XCTAssertNil(legacy.certFingerprint)
     }
 
     // MARK: - Whole-Home Protection (DHCP)

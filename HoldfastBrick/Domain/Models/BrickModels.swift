@@ -26,14 +26,19 @@ struct BrickOverview: Codable, Equatable {
     }
 }
 
-/// Result of exchanging a pairing code for a long-lived token.
+/// Result of exchanging a pairing code for a long-lived token. The
+/// certificate fingerprint is the brick's TLS identity (SHA-256 hex, shown
+/// to the user as the "Brick ID"); null means the brick runs without TLS
+/// (a dev brick).
 struct PairingGrant: Codable, Equatable {
     let token: String
     let deviceName: String
+    let certFingerprint: String?
 
     enum CodingKeys: String, CodingKey {
         case token
         case deviceName = "device_name"
+        case certFingerprint = "cert_fingerprint"
     }
 }
 

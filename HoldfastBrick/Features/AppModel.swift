@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 
 /// What the remote console needs beyond the API: the device's SSH key and a
 /// way to open a shell with it. Bundled so the composition root can swap in
@@ -36,17 +37,24 @@ final class AppModel {
     private let tokens: TokenStore
     private let endpoints: EndpointResolver
     private let console: RemoteConsoleDependencies
+    private let defaults: UserDefaults
+
+    private static let log = Logger(
+        subsystem: "com.marwannakhaleh.holdfastbrick", category: "session"
+    )
 
     init(
         api: BrickAPI,
         tokens: TokenStore,
         endpoints: EndpointResolver,
-        console: RemoteConsoleDependencies? = nil
+        console: RemoteConsoleDependencies? = nil,
+        defaults: UserDefaults = .standard
     ) {
         self.api = api
         self.tokens = tokens
         self.endpoints = endpoints
         self.console = console ?? .live()
+        self.defaults = defaults
         if tokens.token != nil, endpoints.hasCandidates {
             phase = .connected
         }
@@ -63,6 +71,16 @@ final class AppModel {
     /// "via Tailscale" / "on your home network" for the Device screen.
     var connectionRoute: String? { endpoints.activeRouteDescription }
 
+    /// First-4/last-4 hex of the brick's TLS certificate fingerprint, for the
+    /// user to compare with the console output. nil when the brick runs
+    /// without TLS (a dev brick).
+    var brickID: String? {
+        guard let fingerprint = endpoints.certFingerprint else { return nil }
+        let hex = fingerprint.uppercased()
+        guard hex.count >= 8 else { return hex }
+        return "\(hex.prefix(4))…\(hex.suffix(4))"
+    }
+
     // MARK: - Onboarding
 
     func startPairing(with brick: DiscoveredBrick) {
@@ -78,6 +96,9 @@ final class AppModel {
     func completePairing(brick: DiscoveredBrick, code: String) async throws {
         endpoints.adopt(lanHost: brick.host, port: brick.port)
         let grant = try await api.pair(code: code)
+        // Must precede identity(): on a TLS-less (dev) brick the pairing is
+        // what licenses this session's token over plain http.
+        endpoints.notePairing(certFingerprint: grant.certFingerprint)
         tokens.save(grant.token)
         if let identity = try? await api.identity() {
             endpoints.learn(from: identity)
@@ -86,11 +107,26 @@ final class AppModel {
         await refresh()
     }
 
-    func forgetDevice() {
+    /// Undo pairing: best-effort remote cleanup first (while the token still
+    /// works), then every local trace. The remote step is swallowed with a
+    /// log — forgetting must always succeed from the user's point of view.
+    func forgetDevice() async {
+        do {
+            _ = try await api.removeSSHKey()
+        } catch {
+            Self.log.error("remote SSH-key removal skipped (continuing): \(error.localizedDescription, privacy: .public)")
+        }
         tokens.clear()
         endpoints.forget()
         overview = nil
+        lastError = nil
         phase = .needsDevice
+
+        defaults.removeObject(forKey: RemoteConsoleModel.enabledKey)
+        for key in defaults.dictionaryRepresentation().keys
+        where key.hasPrefix("sshTrustedHostKey:") {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     // MARK: - Dashboard
@@ -103,7 +139,11 @@ final class AppModel {
             overview = try await api.overview()
             lastError = nil
         } catch BrickError.unauthorized {
-            forgetDevice()
+            await forgetDevice()
+        } catch BrickError.insecureTransport {
+            // A TLS-minted token can't ride a plain-http fallback; the only
+            // way forward is re-pairing.
+            await forgetDevice()
         } catch {
             lastError = error.localizedDescription
         }

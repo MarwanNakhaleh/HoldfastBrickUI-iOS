@@ -55,23 +55,59 @@ struct RemoteConsoleView: View {
                     .accessibilityIdentifier("console.error")
             }
 
-            Button {
-                Task {
-                    await model.enable()
-                    if model.isEnabled { await model.connect() }
+            if case let .awaitingCode(expiresAt) = model.state {
+                VStack(spacing: 12) {
+                    Text("A 6-digit code is now shown on the brick's screen. Enter it here to prove you're physically at the brick.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                    TextField("Code from the brick", text: $model.confirmCode)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.center)
+                        .font(.title3.monospacedDigit())
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 180)
+                        .accessibilityIdentifier("console.confirmCode")
+                    Text("Expires at \(expiresAt.formatted(date: .omitted, time: .shortened)).")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        Task {
+                            await model.confirmEnable()
+                            if model.isEnabled { await model.connect() }
+                        }
+                    } label: {
+                        if model.isEnabling {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Confirm").frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(model.confirmCode.trimmingCharacters(in: .whitespaces).isEmpty || model.isEnabling)
+                    .accessibilityIdentifier("console.confirmButton")
                 }
-            } label: {
-                if model.isEnabling {
-                    ProgressView().frame(maxWidth: .infinity)
-                } else {
-                    Text("Enable remote console").frame(maxWidth: .infinity)
+            } else {
+                Button {
+                    Task {
+                        await model.beginEnable()
+                        if model.isEnabled { await model.connect() }
+                    }
+                } label: {
+                    if model.isEnabling {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Text("Enable remote console").frame(maxWidth: .infinity)
+                    }
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(model.isEnabling)
+                .padding(.horizontal, 48)
+                .accessibilityIdentifier("console.enableButton")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(model.isEnabling)
-            .padding(.horizontal, 48)
-            .accessibilityIdentifier("console.enableButton")
 
             Spacer()
         }
@@ -129,7 +165,7 @@ struct RemoteConsoleView: View {
     private var statusBar: some View {
         Group {
             switch model.state {
-            case .disconnected:
+            case .disconnected, .awaitingCode:
                 EmptyView()
             case .connecting:
                 HStack(spacing: 8) {
