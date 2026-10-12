@@ -43,6 +43,7 @@ targets:
       properties:
         CFBundleDisplayName: Holdfast
         UILaunchScreen: {}
+        ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations: ["UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"]
         # Bonjour discovery of the Pi on the home network.
         NSLocalNetworkUsageDescription: "Holdfast finds your privacy device on your home WiFi so the app can talk to it directly. Nothing leaves your network."
